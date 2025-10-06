@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Webcam to Supabase Upload</title>
+<style>
+  body {
+    font-family: Arial, sans-serif;
+    background: #f3f4f6;
+    color: #333;
+    margin: 0;
+    padding: 20px;
+  }
+  h1 {
+    text-align: center;
+  }
+  .container {
+    max-width: 800px;
+    margin: 0 auto;
+  }
+  video, canvas {
+    width: 100%;
+    border-radius: 8px;
+    background: black;
+  }
+  button {
+    margin: 5px 3px;
+    padding: 10px 15px;
+    border: none;
+    border-radius: 6px;
+    background-color: #2563eb;
+    color: white;
+    font-size: 16px;
+    cursor: pointer;
+  }
+  button:disabled {
+    background-color: #9ca3af;
+  }
+  .gallery {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 10px;
+    margin-top: 20px;
+  }
+  .gallery img {
+    width: 100%;
+    height: 120px;
+    object-fit: cover;
+    border-radius: 8px;
+  }
+  .error {
+    color: red;
+    margin-top: 10px;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>📸 Webcam ➜ Supabase Upload</h1>
+
+  <video id="video" autoplay playsinline muted></video>
+  <canvas id="canvas" style="display:none;"></canvas>
+
+  <div style="margin-top:10px;">
+    <button id="startBtn">Start Camera</button>
+    <button id="captureBtn" disabled>Capture & Upload</button>
+    <button id="refreshBtn">Refresh List</button>
+  </div>
+
+  <p class="error" id="error"></p>
+
+  <div class="gallery" id="gallery"></div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+  // === CONFIG ===
+  const SUPABASE_URL = "https://tvqlwcfewulvvtkvrbgr.supabase.co";
+  const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InR2cWx3Y2Zld3VsdnZ0a3ZyYmdyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTkxMzAzMTYsImV4cCI6MjA3NDcwNjMxNn0.lfPL4YtOtFHmBvqGESwRCG99GXI73UACm5NOBekBlaU";
+  const BUCKET = "photos";
+  // ===============
+
+  const video = document.getElementById('video');
+  const canvas = document.getElementById('canvas');
+  const startBtn = document.getElementById('startBtn');
+  const captureBtn = document.getElementById('captureBtn');
+  const refreshBtn = document.getElementById('refreshBtn');
+  const errorEl = document.getElementById('error');
+  const gallery = document.getElementById('gallery');
+
+  const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  let stream = null;
+
+  // Start camera
+  startBtn.onclick = async () => {
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      video.srcObject = stream;
+      captureBtn.disabled = false;
+      errorEl.textContent = '';
+    } catch (e) {
+      errorEl.textContent = 'Camera error: ' + e.message;
+    }
+  };
+
+  // Capture and upload
+  captureBtn.onclick = async () => {
+    const ctx = canvas.getContext('2d');
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    canvas.toBlob(async (blob) => {
+      if (!blob) return;
+      const filename = `capture-${Date.now()}.jpg`;
+
+      const { error } = await supabase
+        .storage
+        .from(BUCKET)
+        .upload(filename, blob, {
+          contentType: 'image/jpeg',
+          cacheControl: '3600'
+        });
+
+      if (error) {
+        errorEl.textContent = 'Upload error: ' + error.message;
+      } else {
+        errorEl.textContent = '';
+        await loadImages();
+      }
+    }, 'image/jpeg', 0.9);
+  };
+
+  // Load and display image list
+  async function loadImages() {
+    const { data, error } = await supabase.storage.from(BUCKET).list();
+    gallery.innerHTML = '';
+    if (error) {
+      errorEl.textContent = 'Load error: ' + error.message;
+      return;
+    }
+    for (const file of data.reverse()) {
+      const { data: pub } = supabase.storage.from(BUCKET).getPublicUrl(file.name);
+      const img = document.createElement('img');
+      img.src = pub.publicUrl;
+      img.title = file.name;
+      gallery.appendChild(img);
+    }
+  }
+
+  refreshBtn.onclick = loadImages;
+
+  // Load on startup
+  loadImages();
+</script>
+</body>
+</html>
